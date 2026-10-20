@@ -272,7 +272,7 @@ function measureDetails(project) {
     items?.length
       ? `<h3>${title}</h3><ul>${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`
       : "";
-  return `<section class="panel guide"><h2>Jak připravit ${esc(m.title.toLocaleLowerCase("cs-CZ"))}</h2><div class="split"><div>${section("Co má záměr přinést", m.benefits)}${section("Postup přípravy", m.steps)}${section("Koho zapojit", m.experts)}</div><div>${section("Co si vyžádat jako výstup", m.outputs)}${section("Na co dát pozor", m.risks)}<h3>Podklady k tomuto opatření</h3>${(
+  return `<section class="panel guide"><h2>Příprava záměru: ${esc(m.title)}</h2><div class="split"><div>${section("Co má záměr přinést", m.benefits)}${section("Postup přípravy", m.steps)}${section("Koho zapojit", m.experts)}</div><div>${section("Co si vyžádat jako výstup", m.outputs)}${section("Na co dát pozor", m.risks)}<h3>Podklady k tomuto opatření</h3>${(
     m.sourceIds || []
   )
     .map((id) => sources.find((s) => s.id === id))
@@ -361,6 +361,8 @@ function selectParcel(id) {
     draftBaseline = JSON.stringify(draft);
     view = "projects";
     render();
+    collectDraft();
+    draftBaseline = JSON.stringify(draft);
   };
 }
 function guideView() {
@@ -410,6 +412,8 @@ function bind() {
         draftBaseline = JSON.stringify(draft);
         view = "projects";
         render();
+        collectDraft();
+        draftBaseline = JSON.stringify(draft);
         window.scrollTo({ top: 0 });
       }),
   );
@@ -494,6 +498,8 @@ function action(id) {
     draftBaseline = JSON.stringify(draft);
     view = "projects";
     render();
+    collectDraft();
+    draftBaseline = JSON.stringify(draft);
     window.scrollTo({ top: 0 });
   } else if (id === "back") {
     if (!mayLeaveDraft()) return;
