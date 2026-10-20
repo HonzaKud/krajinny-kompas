@@ -7,12 +7,17 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "node --test"
+    "test": "node --test",
+    "predev": "node scripts/prepare-ocr-assets.mjs",
+    "prebuild": "node scripts/prepare-ocr-assets.mjs"
   },
   "dependencies": {
-    "leaflet": "^1.9.4"
+    "pdfjs-dist": "^6.4.299",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
+    "@tesseract.js-data/ces": "^1.0.0",
+    "@tesseract.js-data/eng": "^1.0.0",
     "prettier": "^3.9.10",
     "vite": "^7.1.0"
   }

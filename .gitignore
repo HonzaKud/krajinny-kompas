@@ -3,3 +3,4 @@ dist/
 .env*
 private/
 *.local.json
+public/vendor/

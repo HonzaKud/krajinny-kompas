@@ -40,6 +40,29 @@ export function validateImport(data) {
       errors: ["Soubor musí obsahovat objekt portfolia."],
       warnings,
     };
+  if (data.provenance != null) {
+    const p = data.provenance;
+    if (typeof p !== "object" || Array.isArray(p))
+      errors.push("Neplatné informace o původu dat.");
+    else {
+      if (
+        p.warnings != null &&
+        (!Array.isArray(p.warnings) ||
+          p.warnings.length > 100 ||
+          p.warnings.some((w) => typeof w !== "string" || w.length > 3000))
+      )
+        errors.push(
+          "Upozornění původu musí obsahovat nejvýše 100 textů po 3 000 znacích.",
+        );
+      if (
+        p.sourceDates != null &&
+        (!Array.isArray(p.sourceDates) ||
+          p.sourceDates.length > 30 ||
+          p.sourceDates.some((d) => typeof d !== "string" || d.length > 40))
+      )
+        errors.push("Neplatný seznam dat zdrojových dokumentů.");
+    }
+  }
   if (
     !Array.isArray(data.parcels) ||
     (!data.parcels.length && data.schemaVersion !== 1)
@@ -126,7 +149,7 @@ export function validateImport(data) {
     );
   if (!list(data.parcels).some((p) => p?.geometry))
     warnings.push(
-      "Parcely nemají geometrii. Mapa jim nebude přiřazovat odhadnutou polohu.",
+      "V podkladech chybí geometrie; hranice a místní podmínky nejsou ověřeny.",
     );
   return { valid: !errors.length, errors: errors.slice(0, 20), warnings };
 }
@@ -232,6 +255,24 @@ export function normalizePortfolio(data) {
     schemaVersion: 1,
     name: clean(data.name || data.title || "Moje pozemky", 150),
     isDemo: data.isDemo === true,
+    provenance: {
+      warnings: [
+        ...new Set([
+          ...list(data.provenance?.warnings),
+          ...validation.warnings,
+        ]),
+      ]
+        .slice(0, 100)
+        .map((w) => clean(w, 3000)),
+      containsDemo:
+        data.isDemo === true || data.provenance?.containsDemo === true,
+      sourceDates: [
+        ...new Set([
+          ...list(data.provenance?.sourceDates),
+          ...(data.as_of ? [clean(data.as_of, 40)] : []),
+        ]),
+      ].slice(0, 30),
+    },
     parcels,
     projects,
     observations: list(data.observations)

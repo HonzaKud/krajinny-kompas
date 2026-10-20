@@ -54,7 +54,7 @@ export const sources = [
     title: "OPŽP ZMV – 17. výzva SC 1.3",
     organization: "AOPK ČR",
     url: "https://dotace.aopk.gov.cz/-/aopk-opzp-zmv-17-vyzva",
-    note: "Oznámeno znovuotevření 20. 10.–3. 11. 2026; stav karty při kontrole stále „připravuje se“.",
+    note: "Znovuotevřený příjem 20. 10.–3. 11. 2026. Při opakované kontrole 20. 10. je karta označená „probíhá“.",
   },
   {
     id: "aopk18",
@@ -526,10 +526,10 @@ export const programs = [
       "Adaptace krajiny na změnu klimatu, včetně vybraných vodních a vegetačních opatření.",
     measureIds: ["pools", "wetland", "stream", "pond", "soil"],
     applicantTypes: allApplicants,
-    status: "verify",
+    status: "open",
     window: { start: "2026-10-20", end: "2026-11-03" },
     eligibilityNote:
-      "Oznámené znovuotevření; stav karty při kontrole stále „připravuje se“. Ověřte skutečný příjem v JDP a aktuální znění výzvy. " +
+      "Registrace v JDP do 3. 11. 2026 v 15:00, doručení žádosti do 10. 11. 2026 v 15:00 podle změny výzvy. Ověřte úplné podmínky a odlišné kroky podání. " +
       candidateNote,
     sourceIds: ["aopk17"],
   },

@@ -1,14 +1,14 @@
 # Stav projektu
 
-Cíl: profesionální nástroj pro vlastníky lesa, polí a luk: od parcely a záměru přes chybějící podklady k dalším krokům, financování a dlouhodobé péči. Rozšíření zadání 20.10.2026: potok, zadržování vody, mokřady, tůně a rybníky.
+Cíl: užitečné možnosti péče a financování ihned po otevření, bez formulářů. Podklady jsou nepovinný vstup, který automaticky přizpůsobí pořadí a odůvodnění. Veřejný GitHub Pages web nemá obsahovat soukromý soupis majetku.
 
-Rozhodnutí: GitHub Pages, statická aplikace bez backendu a placených služeb. Veřejný repozitář obsahuje výhradně syntetickou ukázku. Rodinné údaje jsou lokální import. Žádné personifikované označení partnerkou ani ministerstvem. Název Krajinný kompas.
+Rozhodnutí po uživatelské zpětné vazbě 20. 10. 2026: původní evidenční rozhraní nahrazeno výsledkovými kartami. Výchozí nabídka funguje bez dat. Každý scénář ukazuje základ podpory a vlastní podíl, pracnost s důvodem, rizika, zdroje a konkrétní další krok. Srovnání nejvýše tří variant. Žádná vymyšlená procentní šance schválení. Třináct scénářů sdílí programy: 10 dotačních a 3 alternativy bez nové dotace. Uzavřené výzvy jsou standardně skryté.
 
-Kritéria: funkční portfolio a lokální import/export, mapa bez vymyšlených reálných souřadnic, záměry s rozlišením neznámých podkladů, scénář rozpočtu, dohledatelné aktuální podpory, pracovní Markdown report, přístupná responzivní čeština. Nezávislá kontrola kódu, bezpečnosti, testy a vizuální ověření před publikací.
+Architektura: statické Vite/vanilla JS, žádný backend ani placené AI API. Markdown/JSON/TXT/CSV se strukturuje místně; PDF.js a Tesseract ces+eng pracují v prohlížeči se selfhostovanými assety. Importy se slučují, rozporné záznamy se nepřepisují. Export zachovává nejistoty a historické datum. Paměť prohlížeče je volitelná a má mazání dat.
 
-Hotovo: integrovaná aplikace, 8 opatření a 6 podpor, pracovní report, lokální přenos dat, opt-in mapový podklad, responzivní ovládání. Nezávislá kontrola bezpečnosti, kódu, výpočtů a vizuální kontrola desktopu i mobilu 390/320px. Nalezené chyby přenosu poznámek, víceparcelních vazeb, označení ukázky, validace a mapového souhlasu opraveny. Automatických testů 9, produkční build prošel.
+Ověření aktuálního kódu: 26 automatických testů prošlo, build prošel. Nezávislá kontrola bezpečnosti a testování; opraveny víceúzemní dokumenty, zachování původu, přidávání dokumentů, stavební prefixy a přípona Markdown. Browserový import syntetického PNG přes OCR, textového PDF i skenovaného PDF prošel; opravena kompatibilita ukončení PDF.js loading task. Nezávislá vizuální kontrola prošla na 1440 × 900, 390 × 844 a 320 × 844; finance a náročnost prvních desktopových karet jsou vidět bez scrollování. Porovnání, dialogy, fokus a export ověřeny.
 
-Publikováno: https://honzakud.github.io/krajinny-kompas/ ; repozitář https://github.com/HonzaKud/krajinny-kompas . První GitHub Actions deployment úspěšný, veřejná stránka HTTP200 a ověřená prohlížečem. Veřejný kód obsahuje pouze syntetická ukázková data.
+Publikace: https://honzakud.github.io/krajinny-kompas/ ; kód https://github.com/HonzaKud/krajinny-kompas . Nasazování probíhá přes workflow s testy a produkčním sestavením. Rodinné údaje se importují a případně pamatují výhradně místně.
 
-Omezení: výběrový ručně ověřovaný katalog bez automatického monitoringu; žádné automatické GIS překryvy, záruka způsobilosti ani odborný posudek. Skutečné geometrie a místní poznatky se dodávají jako uživatelské vstupy. Další rozvoj podle skutečného používání: odborné porovnání variant, terénní evidence a prověřené zdroje geometrie.
+Omezení: výběrový ručně ověřovaný katalog, žádný automatický monitoring výzev, GIS překryvy ani odborný posudek. PDF text do 30 stran, OCR skenovaných PDF do prvních 3 stran s upozorněním na neúplnost; složitý nebo nečitelný list nemusí dát úplný přepis. OCR a tematická shoda nejsou ověření práv či nároku na dotaci. Skutečné hydrologické a biologické závěry vyžadují podklady z místa.
 

@@ -1,25 +1,25 @@
 # Krajinný kompas
 
-Pracovní nástroj pro vlastníky krajiny: evidence parcel, příprava záměrů, srovnání vodních a pečujících opatření, kandidátní podpory, rozpočet včetně péče a export podkladu pro odbornou konzultaci.
-
-## Spuštění
-
-Node.js 22 nebo novější. `npm ci`, `npm run dev`. Kontrola: `npm test`, `npm run build`. Výstup `dist/` je statický a podporuje GitHub Pages.
+Možnosti péče a financování pro lesy, louky, pole, stromy a vodu. Po otevření rovnou zobrazí varianty, finanční rámec, pracnost, rizika a první krok. Vyplňování evidenčních formulářů není součástí hlavního toku.
 
 ## Použití
 
-Začněte smyšlenou ukázkou, nebo v **Moje data** načtěte JSON portfolia. Importuje se také strukturovaný historický soupis parcel s poli `area_m2`, `parcel_number`, `cadastral_area`, `land_type`. Osobní údaje vlastníků se nepřebírají. Projekt lze exportovat, znovu načíst a dobrovolně ukládat v tomto prohlížeči. Místní uložení není záloha ani synchronizace. Před zavřením bez zapnutého uložení exportujte JSON.
+Procházejte možnosti ihned nebo zvolte oblast jedním filtrem. Porovnat lze až tři varianty. Detail uvádí podporu a vlastní podíl, základ výpočtu, omezení, zdroje a důvody návaznosti. Výsledky lze stáhnout v Markdownu.
 
-Záměr přiřaďte k parcelám, zaznamenejte cíl a vyplňte podklady jako ano/ne/neověřeno. Úplnost odpovědí neznamená schválení. Rozpočet podpory je uživatelský scénář, nikoli dotační kalkulace potvrzená poskytovatelem. Markdown report lze použít v Obsidianu, předat odborníkovi nebo dále upravit.
+**Načíst podklady** je nepovinné. Podporuje Markdownové tabulky, JSON portfolia a historického soupisu, TXT/CSV, textová PDF a OCR skenů nebo JPG/PNG. Importované parcely se automaticky využijí pro seřazení výsledků. Nové dokumenty se přidávají k existující evidenci; rozpory se odmítnou a původní data zůstanou. Osobní identifikátory vlastníků nejsou přebírány do strukturovaného portfolia.
 
-Mapa zobrazuje pouze dodané WGS84 geometrie Polygon/MultiPolygon. Bez geometrie nebude poloha odhadována. Smyšlené demo geometrie nepředstavují skutečné parcely. Externí podklad je volitelný a při načtení předává poskytovateli zobrazovanou oblast; aplikace neprovádí automatickou analýzu ochranných pásem nebo biologických dat.
+OCR běží místně v prohlížeči pomocí Tesseract (čeština a angličtina), PDF čte PDF.js. Skripty, worker i jazyková data se načítají ze stejného hostování. Dokumenty neodesíláme do externí AI ani na server. Jde o OCR a konzervativní strukturování, nikoli generativní AI. Nečitelný nebo složitý list může skončit upozorněním místo úplného přepisu. OCR neopravňuje považovat vlastnictví, čísla či výměry za úředně ověřené.
 
-## Data a důvěryhodnost
+Limity: 20 souborů / 30 MB najednou, 10 MB jeden soubor. PDF nejvýše 30 stran; OCR skenovaných PDF jen na prvních třech stranách, další se výslovně ohlásí jako nepřečtené. Údaje lze dobrovolně pamatovat v tomto prohlížeči a odstranit. JSON kopie zachovává i původ a nejistoty; uložení v prohlížeči není záloha ani synchronizace.
 
-Výchozí portfolio je výhradně smyšlené. Repo ani hostování neobsahují rodinné listy vlastnictví, adresy či skutečný soupis majetku. Import a výpočty běží místně; aplikace nemá backend, AI klíč ani analytické měření. Veřejný hosting a otevřené externí odkazy zpracovávají běžné síťové požadavky podle pravidel svých provozovatelů.
+## Interpretace
 
-Výběrový katalog obsahuje 8 opatření a 6 programů. Není úplným dotačním vyhledávačem. Primární zdroje, datum ověření a postup aktualizace: [docs/SOURCES.md](docs/SOURCES.md). Staré a neověřené výzvy nejsou vydávány za otevřený příjem. Žádný výstup nenahrazuje místní průzkum, právní titul, odborný návrh, rozhodnutí úřadu nebo přiznání podpory.
+Katalog obsahuje 13 scénářů: 10 dotačních scénářů sdílejících programy a 3 cesty bez nové dotace. Není to 13 různých grantů. Uzavřené výzvy jsou standardně skryté. Primární zdroje, finanční sazby a jejich rozhodný základ: [docs/OPPORTUNITIES.md](docs/OPPORTUNITIES.md), další souvislosti [docs/SOURCES.md](docs/SOURCES.md).
 
-## Další rozvoj
+Shoda s evidencí je tematická návaznost na druh pozemku. Není procentní pravděpodobnost schválení. Katastr sám nepotvrzuje hospodáře, LPIS, hydrologii ani biologický stav. Dotace může být podmíněna jiným výpočtovým základem než cenou dodavatele. Podpora 100 % základu neznamená nulové celkové vlastní náklady.
 
-Připojení ověřených geometrií, souhlasů, nájemních vztahů a terénních pozorování; automatizovaný sběr otevřených výzev vyžaduje samostatnou datovou službu a pravidla kontroly. Aktuální verze žádné pravidelné sledování ani automatické upozorňování neslibuje.
+Reálné rodinné dokumenty ani soupis majetku nejsou ve veřejném repozitáři. Výchozí stránka obsahuje obecné možnosti, žádné smyšlené parcely. Aplikace nemá backend, analytiku ani AI klíč. Katalog se průběžně sám neaktualizuje; před rozhodnutím je nutné otevřít poskytovatele. Mapa a automatické GIS překryvy nejsou součástí tohoto výsledkového rozhraní.
+
+## Vývoj
+
+Node.js 24. `npm ci`, `npm run dev`. Ověření: `npm test`, `npm run build`. Příprava OCR/PDF assetů je součástí predev/prebuild; nekopíruje soukromé dokumenty. `dist/` se nasazuje přes GitHub Actions na Pages. Bez backendu nebo placených API.

@@ -1,623 +1,372 @@
 import "./styles.css";
-import "leaflet/dist/leaflet.css";
-import L from "leaflet";
-import { measures, programs, sources, starterPortfolio } from "./catalog.js";
-import {
-  evaluateProject,
-  calculateBudget,
-  validateImport,
-  createReport,
-  normalizePortfolio,
-} from "./engine.js";
+import { recommend, portfolioSummary } from "./recommendations.js";
+import { importDocuments } from "./importer.js";
+import { sources } from "./catalog.js";
+import { validateImport, normalizePortfolio } from "./engine.js";
 
-const icons = {
-  home: '<path d="m3 10 9-7 9 7v10H3Z"/><path d="M9 20v-7h6v7"/>',
-  map: '<path d="m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2Z"/><path d="M9 3v16M15 5v16"/>',
-  leaf: '<path d="M20 3C9 1 2 7 5 15c7 7 16-2 15-12Z"/><path d="m4 21 12-13"/>',
-  fund: '<path d="M3 8h18M5 8v11m7-11v11m7-11v11M2 21h20M12 2 2 6h20Z"/>',
-  book: '<path d="M12 5C8 2 4 3 2 4v15c4-1 7-1 10 2 3-3 6-3 10-2V4c-3-1-7-2-10 1Zm0 0v16"/>',
-  arrow: '<path d="M4 12h15m-6-6 6 6-6 6"/>',
-  plus: '<path d="M12 4v16M4 12h16"/>',
-  upload: '<path d="M12 16V3m-5 5 5-5 5 5M3 15v6h18v-6"/>',
-  download: '<path d="M12 3v13m-5-5 5 5 5-5M3 17v4h18v-4"/>',
-  shield:
-    '<path d="m12 2 8 3v7c0 6-8 10-8 10S4 18 4 12V5Z"/><path d="m8 11 3 3 5-6"/>',
-  water:
-    '<path d="M12 2C9 7 4 11 4 15a8 8 0 0 0 16 0c0-4-5-8-8-13Z"/><path d="M8 15c0 3 2 4 4 4"/>',
-  tree: '<path d="m12 2-7 9h4l-6 7h18l-6-7h4ZM12 18v4"/>',
-  check: '<path d="m5 12 4 4L20 5"/>',
-  area: '<path d="M3 9V3h6m6 0h6v6M3 15v6h6m6 0h6v-6M8 8h8v8H8Z"/>',
-  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/>',
-  close: '<path d="m5 5 14 14M19 5 5 19"/>',
-};
-const icon = (name) =>
-  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] || icons.leaf}</svg>`;
-const esc = (v = "") =>
-  String(v ?? "").replace(
+const esc = (s = "") =>
+  String(s ?? "").replace(
     /[&<>"']/g,
     (c) =>
       ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
         c
       ],
   );
-const money = (n) =>
-  new Intl.NumberFormat("cs-CZ", {
-    style: "currency",
-    currency: "CZK",
-    maximumFractionDigits: 0,
-  }).format(Number(n) || 0);
-const num = (n, d = 2) =>
-  new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: d }).format(
+const fmt = (n) =>
+  new Intl.NumberFormat("cs-CZ", { maximumFractionDigits: 2 }).format(
     Number(n) || 0,
   );
-const noun = (n, one, few, many) =>
-  n === 1 ? one : n >= 2 && n <= 4 ? few : many;
-const copy = (o) => JSON.parse(JSON.stringify(o));
-const catalog = { measures, programs, sources };
-let portfolio = copy(starterPortfolio),
-  view = "overview",
-  selectedId = null,
-  filter = "all",
-  mapInstance = null,
-  persist = false;
+const url = (u) => {
+  try {
+    const x = new URL(u);
+    return x.protocol === "https:" ? x.href : "#";
+  } catch {
+    return "#";
+  }
+};
+const cats = {
+  all: "Všechny možnosti",
+  forest: "Les",
+  meadow: "Louky",
+  arable: "Pole",
+  water: "Voda v krajině",
+  trees: "Stromy",
+};
+const marks = {
+  forest: "↟",
+  meadow: "〰",
+  arable: "≋",
+  water: "≈",
+  trees: "♧",
+  Les: "↟",
+  Louky: "〰",
+  Půda: "≋",
+  Voda: "≈",
+  Stromy: "♧",
+};
+let portfolio = null,
+  focus = "all",
+  closed = false,
+  persist = false,
+  busy = false,
+  warnings = [],
+  selected = new Set();
+const key = "krajina-results-v2";
 try {
-  if (localStorage.getItem("krajina-opt-in") === "yes") {
-    const saved = JSON.parse(localStorage.getItem("krajina-project"));
-    if (saved && validateImport(saved).valid) {
-      portfolio = normalizePortfolio(saved);
+  if (localStorage.getItem("krajina-results-consent") === "yes") {
+    const stored = JSON.parse(localStorage.getItem(key));
+    const p = stored?.portfolio || stored;
+    if (p?.parcels?.length && validateImport(p).valid) {
+      portfolio = normalizePortfolio(p);
+      warnings = Array.isArray(stored.warnings)
+        ? stored.warnings.filter((w) => typeof w === "string")
+        : [
+            "Import zachycuje dodané dokumenty; neověřuje aktuální katastr ani nárok na podporu.",
+          ];
       persist = true;
     }
   }
 } catch {}
-let draft = null,
-  draftBaseline = null,
-  tilesEnabled = false;
-const getProjects = () => portfolio.projects || [];
-const measureName = (m) => m?.name || m?.title || "Záměr";
-const projectMeasure = (p) =>
-  measures.find((m) => m.id === p.measureId) || measures[0];
-const projectIcon = (p) =>
-  /water|pond|wet|stream|tůň|vod|mokř/i.test(
-    `${p.measureId} ${measureName(projectMeasure(p))}`,
-  )
-    ? "water"
-    : /forest|les|tree|strom/i.test(`${p.measureId}`)
-      ? "tree"
-      : "leaf";
-const evaluation = (p) => {
-  try {
-    return {
-      ...evaluateProject(p, catalog),
-      parcels: portfolio.parcels.filter((a) => p.parcelIds?.includes(a.id)),
-    };
-  } catch {
-    return {
-      readiness: { percent: 0 },
-      checks: [],
-      nextSteps: [],
-      funding: [],
-      waterAdvice: [],
-      summary: "Doplň podklady pro vyhodnocení.",
-    };
-  }
-};
-function save() {
-  if (!persist) return true;
-  try {
-    localStorage.setItem("krajina-project", JSON.stringify(portfolio));
-    localStorage.setItem("krajina-opt-in", "yes");
-    return true;
-  } catch {
-    persist = false;
-    try {
-      localStorage.removeItem("krajina-opt-in");
-    } catch {}
-    toast(
-      "Místní uložení selhalo. Projekt zůstává jen v paměti; exportuj JSON zálohu.",
-    );
-    return false;
-  }
-}
-function mayLeaveDraft() {
-  if (!draft) return true;
-  collectDraft();
-  return (
-    JSON.stringify(draft) === draftBaseline ||
-    confirm("Opustit kartu bez uložení změn? Neuložené změny se ztratí.")
+const app = document.querySelector("#app");
+const results = () => recommend(portfolio, { focus, showClosed: closed });
+const find = (id) =>
+  recommend(portfolio, { focus: "all", showClosed: true }).find(
+    (r) => r.opportunity.id === id,
   );
+const status = (r) =>
+  r.windowLabel ||
+  {
+    open: "Otevřená výzva",
+    upcoming: "Připravuje se",
+    closed: "Výzva uzavřena",
+    verify: "Ověřit aktuální výzvu",
+  }[r.windowStatus] ||
+  "Cesta bez dotační výzvy";
+const list = (xs) =>
+  `<ul class="detail-list">${(xs || []).map((x) => `<li>${esc(typeof x === "string" ? x : x.label || x.title || x.text || "")}</li>`).join("")}</ul>`;
+const limits = (o) =>
+  Array.isArray(o.costShare?.limitations)
+    ? o.costShare.limitations.join(" ")
+    : o.costShare?.limitations || "";
+function save() {
+  if (!persist) return;
+  try {
+    localStorage.setItem(key, JSON.stringify({ portfolio, warnings }));
+    localStorage.setItem("krajina-results-consent", "yes");
+  } catch {
+    warnings.push("Prohlížeč data neuložil. Stáhněte si vlastní kopii.");
+  }
 }
-function toast(message) {
-  document.querySelector(".toast")?.remove();
-  const el = document.createElement("div");
-  el.className = "toast";
-  el.role = "status";
-  el.textContent = message;
-  document.body.append(el);
-  setTimeout(() => el.remove(), 5000);
+function fit(r) {
+  return `<div class="fit ${esc(r.fit.level)}"><i></i><div><strong>${esc(r.fit.label)}</strong><p>${esc(r.fit.reason)}</p></div></div>`;
 }
-function download(filename, text, type = "application/json") {
-  const url = URL.createObjectURL(new Blob([text], { type }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+function card(r) {
+  const o = r.opportunity;
+  return `<article class="opportunity"><div class="card-top"><span class="category">${esc(cats[o.category] || o.category || "Péče o krajinu")}</span><span class="status ${r.windowStatus === "open" ? "open" : ""}">${esc(status(r))}</span></div><div class="card-heading"><span class="nature-mark" aria-hidden="true">${marks[o.category] || "◈"}</span><h2><button data-detail="${esc(o.id)}">${esc(o.title)}</button></h2></div><p class="card-summary">${esc(o.summary)}</p>${fit(r)}<div class="metrics"><div><span>Podpora a spoluúčast</span><strong>${esc(o.costShare?.label || "Podle konkrétních podmínek")}</strong></div><div><span>Náročnost přípravy</span><strong>${esc(o.effort?.label || "Individuální")}</strong></div></div>${r.risks?.length ? `<p class="card-risk"><strong>Pozor:</strong> ${esc(r.risks[0])}</p>` : ""}<div class="card-footer"><button class="text-button" data-detail="${esc(o.id)}">Podmínky a další krok ↗</button><label><input type="checkbox" data-compare="${esc(o.id)}" ${selected.has(o.id) ? "checked" : ""} ${selected.size >= 3 && !selected.has(o.id) ? "disabled" : ""}> Porovnat</label></div></article>`;
 }
-function goto(next) {
-  if (!mayLeaveDraft()) return;
-  view = next;
-  draft = null;
-  render();
-  window.scrollTo({ top: 0, behavior: "smooth" });
-}
-const brand = `<svg class="brand-mark" viewBox="0 0 40 48" fill="none" aria-hidden="true"><path d="M20 3 4 31h32L20 3Z" stroke="#d8dfc9" stroke-width="1.4"/><path d="M20 12v32M10 28l10-10 10 10M7 36l13-8 13 8" stroke="#d8dfc9" stroke-width="1.2"/></svg><span>Krajinný kompas<small>PROSTOR PRO DOBRÉ ZÁMĚRY</small></span>`;
+const landscape = `<svg viewBox="0 0 520 350" role="img" aria-label="Les, louky, pole a voda tvoří propojenou krajinu"><circle cx="411" cy="72" r="31" fill="#d4ac70"/><path d="M0 185Q110 40 275 168T520 130V350H0Z" fill="#bcc8a9"/><path d="M0 235Q118 139 280 218T520 186V350H0Z" fill="#809879"/><path d="M0 275Q150 206 305 264T520 246V350H0Z" fill="#d7d5b7"/><path d="M282 162Q186 202 287 230T261 280T326 350" fill="none" stroke="#d8e6de" stroke-width="23"/><path d="M282 162Q186 202 287 230T261 280T326 350" fill="none" stroke="#8faeaa" stroke-width="9"/>${[45, 75, 105, 145, 175, 205].map((x, i) => `<path d="M${x} ${169 + (i % 3) * 12}l-21 57h42Z" fill="#345847"/><path d="M${x} ${213 + (i % 3) * 12}v25" stroke="#345847" stroke-width="4"/>`).join("")}<path d="M350 280l140-32M367 299l134-31M386 319l127-30" stroke="#aaa87e" fill="none" stroke-width="3"/></svg>`;
 function render() {
-  mapInstance?.remove();
-  mapInstance = null;
-  const views = {
-    overview: ["Přehled", "home"],
-    map: ["Mapa", "map"],
-    projects: ["Záměry", "leaf"],
-    funding: ["Podpory", "fund"],
-    guide: ["Průvodce", "book"],
-  };
-  document.querySelector("#app").innerHTML =
-    `<div class="shell"><aside class="sidebar"><div class="brand">${brand}</div><nav class="nav" aria-label="Hlavní navigace">${Object.entries(
-      views,
-    )
-      .map(
-        ([id, [label, ic]]) =>
-          `<button data-nav="${id}" class="${view === id ? "active" : ""}" ${view === id ? 'aria-current="page"' : ""}>${icon(ic)}${label}</button>`,
-      )
-      .join(
-        "",
-      )}</nav><div class="sidebar-bottom"><strong>Krajina má své souvislosti.</strong><br>Rozhoduj se s podklady,<br>plánuj s výhledem.<br><br>Veřejné zdroje · vlastní rozhodnutí</div></aside><main class="main"><header class="topbar"><div class="breadcrumb">Pracovní prostor <span aria-hidden="true">/</span> <b>${views[view]?.[0] || "Záměr"}</b></div><div class="top-actions"><span class="privacy">${icon("shield")} Soukromá data zůstávají u tebe</span><button class="button secondary" data-action="data">${icon("upload")} Moje data</button></div></header><div class="content">${view === "overview" ? overview() : view === "map" ? mapView() : view === "projects" ? projectsView() : view === "funding" ? fundingView() : guideView()}</div></main></div><input type="file" id="file-import" accept=".json,application/json" hidden>`;
-  bind();
-  if (view === "map") mountMap();
-}
-function heading(eyebrow, title, description, action = "") {
-  return `<div class="page-heading"><div><div class="eyebrow">${eyebrow}</div><h1>${title}</h1><p class="subtitle">${description}</p></div>${action || `<span class="demo-tag"><span class="dot"></span>${portfolio.isDemo ? "Ukázková krajina · smyšlená data" : "Vlastní místní projekt"}</span>`}</div>`;
-}
-const landscape = `<svg class="hero-art" viewBox="0 0 650 290" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><defs><linearGradient id="sky" x2="0" y2="1"><stop stop-color="#547554"/><stop offset="1" stop-color="#a7b58b"/></linearGradient></defs><rect width="650" height="290" fill="url(#sky)"/><circle cx="488" cy="68" r="36" fill="#c9cca1" opacity=".55"/><path d="M0 140Q120 40 260 126T650 95V290H0Z" fill="#5c7b54"/><path d="M0 190Q170 75 370 173T650 153V290H0Z" fill="#779367"/><path d="M0 250Q180 134 365 218T650 188V290H0Z" fill="#405f43"/><path d="M650 210Q450 175 355 223T220 290h125q-5-35 80-42t225 14Z" fill="#a5b5a0" opacity=".8"/><path d="m0 196 190 72M50 168l195 93M106 147l199 89M162 142l198 71" stroke="#a8b684" opacity=".3"/><g fill="#294d38"><path d="m460 94-25 55h50Z"/><path d="m500 115-22 48h44Z"/><path d="m535 93-29 65h58Z"/><path d="m580 110-25 59h50Z"/><path d="m622 80-33 75h66Z"/><path d="m416 122-20 44h40Z"/></g><g fill="#31513b"><path d="m112 214-32 70h64Z"/><path d="m157 233-25 57h50Z"/><path d="m62 230-32 60h64Z"/></g><path d="M18 130q130-50 232 9M52 115q100-34 190 5M363 185q127-34 240 11" fill="none" stroke="#cfdbb1" opacity=".18"/></svg>`;
-function overview() {
-  const total =
-    (portfolio.parcels || []).reduce((s, p) => s + (Number(p.areaM2) || 0), 0) /
-    10000;
-  const water = getProjects().filter((p) => projectIcon(p) === "water").length;
-  return `${heading("Od pozemku k dobrému záměru", "Každý pozemek má potenciál.", "Najdi souvislosti, připrav smysluplný záměr a zjisti, co potřebuješ pro další krok.")}<section class="hero"><div class="hero-content"><div class="eyebrow">VODA · PŮDA · LES · PÉČE</div><h2>Zdravější krajina začíná<br>dobrým rozhodnutím.</h2><p>Propoj stav místa, možnosti péče a financování. Srozumitelně, s podklady a bez předčasných slibů.</p><button class="button" data-action="new">Prozkoumat nový záměr ${icon("arrow")}</button></div>${landscape}</section><div class="stats">${stat("Pozemky v přehledu", num(portfolio.parcels?.length || 0), noun(portfolio.parcels?.length, "parcela", "parcely", "parcel"), "Připravené pro společné plánování", "map")}${stat("Celková plocha", num(total), "ha", "Podle načtené evidence pozemků", "area")}${stat("Rozpracované záměry", num(getProjects().length), "", "Od nápadu k ověřenému podkladu", "leaf")}${stat("Voda v krajině", num(water), noun(water, "záměr", "záměry", "záměrů"), "Tůně, mokřady a přirozené toky", "water")}</div><div class="dashboard-grid"><section><div class="section-heading"><h2>Záměry v krajině</h2><button class="text-button" data-nav="projects">Všechny záměry ${icon("arrow")}</button></div><div class="project-list">${getProjects().slice(0, 3).map(projectCard).join("") || '<div class="panel empty">Začni prvním záměrem. Evidence pozemků sama zatím neříká, co je na místě vhodné.</div>'}</div></section><section><div class="section-heading"><h2>Nejbližší dobrý krok</h2></div><div class="next-card"><div class="eyebrow">NEJDŘÍV POCHOPIT MÍSTO</div><h3>Voda potřebuje prostor.<br>A záměr dobré podklady.</h3><div class="step-line"><span class="step-number">1</span><span>Zaznamenej, kudy voda přitéká, kde mizí a jak se místo mění po dešti.</span></div><div class="step-line"><span class="step-number">2</span><span>Prověř vlastníka, užívání a vztah k vodnímu toku.</span></div><div class="step-line"><span class="step-number">3</span><span>Porovnej tůň, mokřad a obnovu přirozeného toku. Rybník není jediná cesta.</span></div><button class="text-button" data-nav="guide">Otevřít průvodce ${icon("arrow")}</button></div></section></div>${sourceStrip()}`;
-}
-function stat(label, value, unit, note, ic) {
-  return `<div class="stat"><div class="stat-head">${label}${icon(ic)}</div><div class="stat-value">${value}<small>${unit}</small></div><div class="stat-note">${note}</div></div>`;
-}
-function projectCard(p) {
-  const e = evaluation(p);
-  return `<article class="project-card"><div class="measure-icon">${icon(projectIcon(p))}</div><div><h3>${esc(p.name)}</h3><div class="project-meta">${esc(measureName(projectMeasure(p)))} · ${p.areaHa > 0 ? `${num(p.areaHa)} ha` : "plocha k upřesnění"}</div><span class="pill ${e.readiness?.percent < 50 ? "amber" : ""}">${num(e.readiness?.percent || 0, 0)} % podkladů doplněno</span></div><button class="card-arrow" data-edit="${esc(p.id)}" aria-label="Otevřít ${esc(p.name)}">${icon("arrow")}</button></article>`;
-}
-function sourceStrip() {
-  return `<div class="source-strip"><span>Opíráme se o veřejné odborné zdroje</span><a href="https://aopk.gov.cz/" target="_blank" rel="noopener">AOPK ČR ↗</a><a href="https://mze.gov.cz/" target="_blank" rel="noopener">Ministerstvo zemědělství ↗</a><a href="https://www.cuzk.gov.cz/" target="_blank" rel="noopener">ČÚZK ↗</a><a href="https://nli.gov.cz/" target="_blank" rel="noopener">Národní lesnický institut ↗</a><button class="text-button" data-nav="guide">Zdroje a omezení</button></div>`;
-}
-function newProject() {
-  return {
-    id: `zamer-${Date.now()}`,
-    name: "",
-    measureId: measures[0]?.id,
-    parcelIds: [],
-    areaHa: 0,
-    evidence: {},
-    budget: {
-      preparation: 0,
-      implementation: 0,
-      annualMaintenance: 0,
-      years: 5,
-      ownWork: 0,
-      eligibleCosts: 0,
-      grantRate: 0,
-      grantConfirmed: false,
-    },
-    notes: "",
-  };
-}
-function projectsView() {
-  if (draft) return editor();
-  return `${heading("Nápad, který stojí na podkladech", "Záměry v krajině", "Každý záměr propojuje místo, potřebné ověření, ekonomiku a další postup.", `<button class="button" data-action="new">${icon("plus")} Nový záměr</button>`)}<div class="callout">${portfolio.isDemo ? "Pracuješ se smyšlenými ukázkami. Slouží k vyzkoušení postupu; nevztahují se k rodinným pozemkům." : "Pracuješ s místními daty. Vhodnost opatření vyžaduje ověření v terénu a podle konkrétních podmínek."}</div><div class="split"><div class="project-list">${getProjects().map(projectCard).join("") || '<div class="panel empty">Zatím nemáš žádný záměr. Vytvoř první a vyber, co chceš na místě prověřit.</div>'}</div><div class="panel"><div class="eyebrow">JAK POSTUPOVAT</div><h2 class="section-space">Od nápadu k rozhodnutí</h2><p>Začni cílem: více vody v půdě, zdravější les, pestřejší louka nebo bezpečná péče o stromy.</p><p>Doplň, co je skutečně ověřené. Nástroj sestaví seznam chybějících podkladů a předběžně porovná podpory.</p><p class="note">Výsledek není povolení, odborný posudek ani příslib dotace. Je to podklad pro konkrétní další jednání.</p></div></div>`;
-}
-function editor() {
-  const p = draft,
-    e = evaluation(p),
-    b = calculateBudget(p.budget || {});
-  return `${heading("Pracovní karta záměru", esc(p.name || "Nový záměr"), "Doplň fakta, porovnej varianty a připrav podklad pro další jednání.", `<button class="button secondary" data-action="back">${icon("close")} Zavřít kartu</button>`)}<form id="project-form"><div class="split"><section class="panel"><h2>Místo a cíl</h2><div class="form-grid"><label class="field wide">Název záměru<input name="name" required maxlength="150" value="${esc(p.name)}" placeholder="Například: Obnova vlhkého místa pod lesem"></label><label class="field wide">Co chceš prověřit<select name="measureId">${measures.map((m) => `<option value="${esc(m.id)}" ${p.measureId === m.id ? "selected" : ""}>${esc(measureName(m))}</option>`).join("")}</select></label><label class="field">Řešená plocha (ha)<input name="areaHa" type="number" min="0" step="0.0001" value="${p.areaHa || 0}"></label><label class="field">Pozemek<select name="parcelIds" multiple size="3">${(portfolio.parcels || []).map((a) => `<option value="${esc(a.id)}" ${p.parcelIds?.includes(a.id) ? "selected" : ""}>${esc(a.name || a.parcelNumber || a.id)}</option>`).join("")}</select></label><label class="field wide">Cíl a poznatky z místa<textarea maxlength="20000" name="notes" placeholder="Co se zde děje, čeho chceš dosáhnout, co ještě nevíš…">${esc(p.notes || "")}</textarea></label></div>${e.waterAdvice?.length ? `<div class="callout">${e.waterAdvice.map((x) => esc(x)).join("<br><br>")}</div>` : ""}<p class="note">${esc(projectMeasure(p)?.description || projectMeasure(p)?.summary || "Vhodnost opatření nejprve ověř podle skutečného stavu místa.")}</p></section><section class="panel"><h2>Připravenost podkladů</h2><p class="note">„Ano“ zvol jen pro doloženou skutečnost. „Ne“ je známá překážka; „Nevím“ znamená potřebu ověření.</p>${(e.checks || []).map((c) => `<div class="question"><label for="e-${esc(c.id)}">${esc(c.label)}${c.required ? " *" : ""}<small>${esc(c.help || "")}</small></label><select id="e-${esc(c.id)}" name="evidence.${esc(c.id)}"><option value="unknown" ${c.status === "unknown" ? "selected" : ""}>Nevím / chybí</option><option value="yes" ${c.status === "yes" ? "selected" : ""}>Ano, ověřeno</option><option value="no" ${c.status === "no" ? "selected" : ""}>Ne / překážka</option></select></div>`).join("")}<div class="inline-status">Doplněno ${num(e.readiness?.percent || 0, 0)} % podkladů. ${esc(e.summary || "")}</div></section></div><section class="panel"><h2>Ekonomika celého záměru</h2><p class="note">Orientační scénář. Procento podpory zadáváš sám; neznamená nárok ani schválené financování. Částky v Kč.</p><div class="form-grid">${[
-    ["preparation", "Příprava a dokumentace"],
-    ["implementation", "Realizace"],
-    ["ownWork", "Ocenění vlastní práce"],
-    ["annualMaintenance", "Roční následná péče"],
-    ["years", "Počet let péče"],
-    ["eligibleCosts", "Předpokládané způsobilé výdaje"],
-    ["grantRate", "Scénář podpory (%)"],
-  ]
+  const s = portfolioSummary(portfolio),
+    rs = results();
+  app.innerHTML = `<a class="skip" href="#results">Přejít na možnosti</a><header><a class="brand" href="#"><span class="brand-mark" aria-hidden="true">⌘</span><span>Krajinný <b>kompas</b><small>Péče, která dává smysl.</small></span></a><nav><button class="quiet about" data-action="about">Jak číst výsledky</button><button class="button small" data-action="data">${s.hasData ? "Moje podklady" : "Načíst podklady"} ↗</button></nav></header><main><section class="hero"><div><p class="eyebrow">OD MOŽNOSTÍ K ROZHODNUTÍ</p><h1>Co může prospět<br> vaší krajině<span>.</span></h1><p class="hero-text">Najděte podporu pro lesy, louky, půdu i vodu. Rovnou s podmínkami, spoluúčastí a tím, na co si dát pozor.</p><div class="hero-note"><span aria-hidden="true">↗</span><p>${s.hasData ? `Výběr přizpůsobený evidenci <strong>${fmt(s.count)} ${s.count === 1 ? "parcela" : s.count >= 2 && s.count <= 4 ? "parcely" : "parcel"} · ${fmt(s.areaHa)} ha.</strong> Bez dalšího vyplňování.` : "Možnosti můžete procházet ihned. <strong>Podklady o pozemcích nejsou podmínkou.</strong>"}</p></div></div><aside class="landscape">${landscape}<div><span>Les · Louka · Pole · Voda</span><strong>Každé místo má své možnosti.</strong></div></aside></section>${warnings.length ? `<section class="notice" role="status"><strong>Co je potřeba vědět o podkladech</strong>${list(warnings)}</section>` : ""}<section class="results-section" id="results"><div class="section-heading"><div><p class="eyebrow">${s.hasData ? "PODLE VAŠICH PODKLADŮ" : "ZAČNĚTE TÍM, CO VÁS ZAJÍMÁ"}</p><h2>Možnosti pro krajinu</h2></div><button class="quiet export" data-action="report">Stáhnout přehled ↓</button></div><div class="filters" role="group" aria-label="Oblast zájmu">${Object.entries(
+    cats,
+  )
     .map(
-      ([key, label]) =>
-        `<label class="field">${label}<input name="budget.${key}" type="number" min="0" ${key === "grantRate" ? 'max="100"' : ""} step="${key === "years" ? "1" : "0.01"}" value="${Number(p.budget?.[key]) || 0}"></label>`,
+      ([id, name]) =>
+        `<button class="chip ${focus === id ? "active" : ""}" data-focus="${id}" aria-pressed="${focus === id}">${marks[id] ? `<span aria-hidden="true">${marks[id]}</span>` : ""}${name}</button>`,
     )
     .join(
       "",
-    )}</div><div class="form-actions"><button class="button secondary" type="button" data-action="recalculate">Přepočítat rozpočet</button></div><div class="result-grid section-space"><div class="result-box"><span>Celkové náklady včetně péče</span><strong>${money(b.total + b.maintenanceTotal)}</strong></div><div class="result-box"><span>Modelovaná podpora</span><strong>${money(b.grant)}</strong></div><div class="result-box"><span>Náklady po modelované podpoře</span><strong>${money(b.netCost ?? b.ownContribution)}</strong></div></div><div class="callout">Pro předfinancování počítej až s ${money(b.upfrontCash)}. Skutečný platební režim závisí na programu. ${[...(b.errors || []), ...(b.warnings || [])].map(esc).join(" ")}</div></section><div class="split"><section class="panel"><h2>Nejbližší kroky</h2>${e.nextSteps?.length ? e.nextSteps.map((step, i) => `<div class="step-line"><span class="step-number">${i + 1}</span><span>${esc(step)}</span></div>`).join("") : "<p>Podklady jsou doplněné. Ověř aktuální podmínky s příslušným odborníkem a poskytovatelem podpory.</p>"}</section><section class="panel"><h2>Předběžná vazba na podpory</h2>${e.funding?.length ? e.funding.map((f) => `<div class="step-line"><div><span class="pill ${f.status === "blocked" ? "red" : f.status === "candidate" ? "" : "amber"}">${f.status === "candidate" ? "K prověření" : f.status === "blocked" ? "Překážka" : "Chybí podklady"}</span><h3 style="margin-top:8px">${esc(f.program?.name || f.program?.title || f.program?.id)}</h3><span>${(f.reasons || []).map(esc).join(" ")}</span></div></div>`).join("") : "<p>Pro toto opatření není v katalogu vhodný kandidát. To nevylučuje jiné možnosti financování.</p>"}</section></div><div class="form-actions"><button class="button" type="submit">${icon("check")} Uložit záměr</button><button class="button secondary" type="button" data-action="report">${icon("download")} Podklad v Markdownu</button><button class="button secondary" type="button" data-action="project-json">Export záměru JSON</button>${getProjects().some((x) => x.id === p.id) ? '<button type="button" class="button danger" data-action="delete-project">Smazat záměr</button>' : ""}</div><p class="note section-space">Podklady se vyhodnocují průběžně, rozpočet aktualizuj tlačítkem „Přepočítat rozpočet“. Tlačítkem „Uložit záměr“ je potvrdíš do pracovního projektu. Bez zapnutého místního uložení je nutný export souboru.</p></form>${measureDetails(p)}`;
-}
-function fundingView() {
-  const list = programs.filter(
-    (p) =>
-      filter === "all" ||
-      (p.measureIds || p.measures || []).some((x) => x === filter),
-  );
-  return `${heading("Financování sleduje smysluplný záměr", "Podpory a příležitosti", "Kurátorovaný přehled cest financování. Způsobilost se prověřuje u konkrétního záměru.")}<div class="callout">Výzvy a jejich stav se mění. Odkaz na poskytovatele a datum kontroly jsou důležitější než obecný příslib procent. Před podáním vždy ověř aktuální znění podmínek.</div><div class="filter-row"><button class="filter ${filter === "all" ? "active" : ""}" data-filter="all">Všechny oblasti</button>${measures.map((m) => `<button class="filter ${filter === m.id ? "active" : ""}" data-filter="${esc(m.id)}">${esc(measureName(m))}</button>`).join("")}</div><div class="program-grid">${list.map((p) => `<article class="program"><span class="pill blue">${esc(p.provider || p.administrator || "Veřejná podpora")}</span><h3>${esc(p.name || p.title)}</h3><p>${esc(p.description || p.summary || "Podmínky a aktuální možnosti ověř u poskytovatele.")}</p>${programDetails(p)}${p.caution ? `<p>${esc(p.caution)}</p>` : ""}<div class="program-footer"><a href="${safeUrl(p.url || p.sourceUrl)}" target="_blank" rel="noopener">Podmínky u poskytovatele ↗</a><small>Kontrola: ${esc(p.checkedAt || p.verifiedAt || "ověř u zdroje")}</small></div></article>`).join("") || '<div class="panel empty">Pro tento filtr není v katalogu program. Zkus všechny oblasti.</div>'}</div>${sourceStrip()}`;
-}
-function programDetails(program) {
-  const result = evaluateProject(
-    { measureId: program.measureIds?.[0] },
-    catalog,
-  ).funding.find((f) => f.program.id === program.id);
-  const status = result?.windowStatus || "verify";
-  const labels = {
-    open: "Příjem otevřen · ověř podmínky",
-    upcoming: "Oznámený budoucí termín",
-    closed: "Ukončená výzva",
-    verify: "Aktuální příjem ověř u poskytovatele",
-  };
-  const date = (v) =>
-    v ? new Date(`${v}T12:00:00`).toLocaleDateString("cs-CZ") : "neuvedeno";
-  return `<p><span class="pill ${status === "closed" ? "red" : "amber"}">${esc(labels[status])}</span></p><p class="note">${program.window?.start || program.window?.end ? `Uvedené okno: ${date(program.window.start)} – ${date(program.window.end)}` : "Lhůta závisí na titulu a aktuálních podmínkách."}</p><p class="note">${esc(program.eligibilityNote)}</p>`;
-}
-function measureDetails(project) {
-  const m = projectMeasure(project);
-  const section = (title, items) =>
-    items?.length
-      ? `<h3>${title}</h3><ul>${items.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`
-      : "";
-  return `<section class="panel guide"><h2>Příprava záměru: ${esc(m.title)}</h2><div class="split"><div>${section("Co má záměr přinést", m.benefits)}${section("Postup přípravy", m.steps)}${section("Koho zapojit", m.experts)}</div><div>${section("Co si vyžádat jako výstup", m.outputs)}${section("Na co dát pozor", m.risks)}<h3>Podklady k tomuto opatření</h3>${(
-    m.sourceIds || []
-  )
-    .map((id) => sources.find((s) => s.id === id))
-    .filter(Boolean)
-    .map(
-      (s) =>
-        `<p><a href="${safeUrl(s.url)}" target="_blank" rel="noopener">${esc(s.title)} ↗</a><br><small>Ověřeno ${esc(s.checkedAt)}</small></p>`,
-    )
-    .join("")}</div></div></section>`;
-}
-function safeUrl(url) {
-  try {
-    const u = new URL(url);
-    return ["http:", "https:"].includes(u.protocol) ? esc(u.href) : "#";
-  } catch {
-    return "#";
-  }
-}
-function mapView() {
-  return `${heading("Místo v souvislostech", "Mapa krajiny", "Propoj pozemky se záměry. Mapa pomáhá klást správné otázky; sama nenahrazuje průzkum.")}<div class="map-layout"><div><div class="form-actions" style="margin:0 0 12px"><button class="button secondary" data-action="tiles">${tilesEnabled ? "Vypnout online podklad" : "Zapnout online mapový podklad"}</button><span class="note">${tilesEnabled ? "Online podklad zapnut" : "Výchozí mapa bez požadavků externí mapové službě"}</span></div><div id="land-map" class="map-canvas" aria-label="Interaktivní mapa pozemků"></div><div class="map-legend"><span><i class="legend-dot" style="background:#557b45"></i>Les a stromy</span><span><i class="legend-dot" style="background:#b3b16e"></i>Pole a louky</span><span><i class="legend-dot" style="background:#6b9d98"></i>Vodní souvislosti</span></div><p class="note">${portfolio.isDemo ? "Polygony jsou záměrně smyšlené a nejsou katastrálními hranicemi." : "Zobrazují se pouze geometrie obsažené v importu. Chybějící hranice nelze odvodit z výměry nebo čísla parcely."} Podklad OpenStreetMap vyžaduje připojení; jeho poskytovatel přijímá běžné mapové požadavky.</p></div><aside class="map-side"><div class="panel"><h3>Pozemky</h3><p class="note">Klikni na řádek nebo plochu v mapě.</p>${(portfolio.parcels || []).map((p) => `<button class="parcel-row" data-parcel="${esc(p.id)}"><span>${esc(p.name || p.parcelNumber || p.id)}<br><small>${esc(p.landType || "Druh neuveden")}</small></span><span>${num(p.areaM2 / 10000)} ha</span></button>`).join("")}</div><div class="panel" id="parcel-detail"><div class="eyebrow">SOUVISLOSTI MÍSTA</div><h3 class="section-space">Začni pohledem na vodu</h3><p class="note">Kudy voda přichází? Co jí zrychluje odtok? Které místo zůstává přirozeně vlhké?</p><a class="text-button" href="https://mapy.vumop.cz/" target="_blank" rel="noopener">Půdní a erozní mapy ↗</a><a class="text-button" href="https://mapy.nature.cz/" target="_blank" rel="noopener">Mapy ochrany přírody ↗</a></div></aside></div>`;
-}
-const layers = new Map();
-function mountMap() {
-  layers.clear();
-  mapInstance = L.map("land-map", { scrollWheelZoom: false }).setView(
-    [49.72, 14.88],
-    13,
-  );
-  if (tilesEnabled)
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution:
-        '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      maxZoom: 19,
-    }).addTo(mapInstance);
-  const bounds = [];
-  for (const p of portfolio.parcels || []) {
-    if (!p.geometry) continue;
-    try {
-      const feature =
-        p.geometry.type === "Feature"
-          ? p.geometry
-          : { type: "Feature", properties: {}, geometry: p.geometry };
-      const color = /les|forest/i.test(p.landType || "")
-        ? "#557b45"
-        : /water|vod|mokř/i.test(p.landType || "")
-          ? "#5a928c"
-          : "#a2a15b";
-      const layer = L.geoJSON(feature, {
-        style: { color, weight: 2, fillOpacity: 0.35 },
-      }).addTo(mapInstance);
-      layer.bindPopup(
-        `<strong>${esc(p.name || p.parcelNumber || p.id)}</strong><br>${esc(p.landType)} · ${num(p.areaM2 / 10000)} ha`,
-      );
-      layer.on("click", () => selectParcel(p.id));
-      layers.set(p.id, layer);
-      bounds.push(layer.getBounds());
-    } catch {}
-  }
-  if (bounds.length) {
-    const combined = bounds[0];
-    bounds.slice(1).forEach((b) => combined.extend(b));
-    mapInstance.fitBounds(combined, { padding: [40, 40], maxZoom: 15 });
-  } else {
-    document
-      .querySelector("#parcel-detail")
-      .insertAdjacentHTML(
-        "afterbegin",
-        '<div class="callout">V importu nejsou geometrie. Mapa nezobrazuje hranice vlastních pozemků.</div>',
-      );
-  }
-}
-function selectParcel(id) {
-  const p = portfolio.parcels.find((x) => x.id === id);
-  if (!p) return;
-  const l = layers.get(id);
-  if (l) {
-    mapInstance.fitBounds(l.getBounds(), { padding: [50, 50], maxZoom: 16 });
-    l.openPopup();
-  }
-  document.querySelector("#parcel-detail").innerHTML =
-    `<div class="eyebrow">KARTA POZEMKU</div><h3 class="section-space">${esc(p.name || p.parcelNumber || p.id)}</h3><p>${esc(p.cadastralArea || "Katastrální území neuvedeno")}<br>${esc(p.landType)} · ${num(p.areaM2 / 10000)} ha</p><p class="note">${l ? "Geometrie převzata z pracovního projektu." : "Geometrie není k dispozici."} ${esc((p.protections || []).join?.(", ") || "")}</p><button class="button light" data-action="new-parcel" data-id="${esc(id)}">Připravit záměr ${icon("arrow")}</button>`;
-  document.querySelector('[data-action="new-parcel"]').onclick = () => {
-    draft = newProject();
-    draft.parcelIds = [id];
-    draft.areaHa = p.areaM2 / 10000;
-    draftBaseline = JSON.stringify(draft);
-    view = "projects";
-    render();
-    collectDraft();
-    draftBaseline = JSON.stringify(draft);
-  };
-}
-function guideView() {
-  return `${heading("Souvislosti před sliby", "Průvodce dobrým rozhodnutím", "Praktické otázky pro vlastníka a podklady pro rozhovor s odborníkem.")}<div class="split"><section class="panel guide"><h2>Voda a zdraví krajiny</h2><details open><summary>Tůň, mokřad, nebo rybník?</summary><p>Nejdřív pojmenuj problém. Pro zpomalení odtoku může dávat smysl obnova mokřadu, mělká tůň nebo prostor pro přirozený tok. Rybník má jiné technické, provozní a povolovací souvislosti.</p><ul><li>Odkud bude voda a jaký je stav v suchém období?</li><li>Neodvádí voda z místa drenáž nebo příkop?</li><li>Je zásah napojený na vodní tok a koho ovlivní níže?</li><li>Jaké přírodní hodnoty zde už jsou?</li><li>Kdo bude zajišťovat péči a případné opravy?</li></ul></details><details><summary>Potok a les: řeš celé souvislosti</summary><p>Obnova přirozeného toku, nivy a vodního režimu lesa se posuzuje podle konkrétního místa. Ujasni správce toku, okolní vlastníky, přístup a odvodňovací zařízení. Bez posouzení nezasahuj do koryta ani nestav přehrážky.</p><p>Odborníkovi přines fotografie za různých podmínek, mapu, popis odtoku a cíl. Návrh řešení má navazovat na průzkum.</p></details><details><summary>Ochrana přírody: absence záznamu není absence druhu</summary><p>Veřejné mapy neobsahují všechny nálezy a citlivé údaje. Přítomnost druhu a vhodnost zásahu může vyžadovat místní průzkum. Mapa pouze pomůže včas rozpoznat, co ověřit.</p></details><details><summary>Les, půda a louka jako jeden celek</summary><p>Les potřebuje vhodnou skladbu a hospodaření, pole ochranu před erozí a louka odpovídající péči. Voda propojuje sousední plochy. Zvaž soulad se současným užíváním a lesnickými podklady; zapoj hospodáře a odborného lesního hospodáře.</p></details></section><section class="panel guide"><h2>Nabídky, finance a odpovědnost</h2><details open><summary>Co musí vysvětlit nabídka péče</summary><ul><li>Kdo je dodavatel, žadatel a příjemce podpory?</li><li>Co přesně bude hotové a jak se to převezme?</li><li>Kdo zaplatí, pokud dotace nevyjde?</li><li>Jaké vlastní náklady a budoucí závazky vzniknou?</li><li>Kdo zajišťuje odbornou kvalitu, škody a následnou péči?</li><li>Jak lze spolupráci ukončit?</li></ul><p>Označ nejasná ustanovení smlouvy a vyžádej vysvětlení. Samotný věk stromu neurčuje status památného stromu.</p></details><details><summary>Procento dotace není ekonomický výsledek</summary><p>Odděl způsobilé výdaje, skutečnou cenu, vlastní práci, předfinancování a dlouhodobou péči. Zohledni náklady na dokumentaci i situaci, kdy podpora nebude získána. Závazky vyčti z aktuálních podmínek a rozhodnutí.</p></details><details><summary>Co můžeš předat dalšímu vlastníkovi</summary><p>Přehled doložených faktů, chybějících podkladů, variant a konkrétních dalších kroků. Export v Markdownu jde dál upravovat a archivovat. Odborný posudek, povolení a příslib financování tento nástroj nevydává.</p></details><details><summary>Soukromí a profesní využití</summary><p>Importované soubory se zpracují místně v prohlížeči. Aplikace je sama neodesílá. Místní uložení je dobrovolné a neznamená zálohu nebo synchronizaci. Při používání externích odkazů a map platí pravidla jejich provozovatelů.</p><p>Při profesním využití používej pouze podklady, ke kterým máš oprávnění, a vyjasni případný střet zájmů. Tento nezávislý nástroj nepředstavuje oficiální stanovisko instituce.</p></details></section></div><section class="panel"><h2>Zdroje a kontrolovatelnost</h2><p class="note">Katalog představuje výběr, nikoli úplný přehled všech programů. Podmínky i dostupnost financování se mohou změnit. Záznam katastru a skutečný současný stav se mohou lišit.</p><div class="table-wrap"><table><thead><tr><th>Zdroj</th><th>K čemu slouží</th><th>Odkaz</th></tr></thead><tbody>${sources.map((s) => `<tr><td>${esc(s.name || s.title || s.id)}</td><td>${esc(s.description || s.purpose || s.note || "Veřejný odborný podklad")}</td><td><a href="${safeUrl(s.url)}" target="_blank" rel="noopener">Otevřít zdroj ↗</a></td></tr>`).join("")}</tbody></table></div></section>`;
-}
-function dataView() {
-  mapInstance?.remove();
-  mapInstance = null;
-  document.querySelector(".content").innerHTML =
-    `${heading("Data pod tvou kontrolou", "Moje data", "Pracovní projekt přenášej jako otevřený JSON. Import zpracovává tento prohlížeč.")}<div class="split"><section class="panel"><h2>Načíst a přenést projekt</h2><p>Načti soubor z evidence pozemků nebo dřívější export aplikace. Osobní identifikátory a adresy vlastníků nejsou pro plánování potřebné.</p><div class="form-actions"><button class="button" data-action="import">${icon("upload")} Načíst JSON</button><button class="button secondary" data-action="export">${icon("download")} Export projektu</button></div><p class="note section-space">Načtení nahradí aktuální pracovní projekt v aplikaci. Předem si exportuj rozpracované změny. Soubor není odesílán na server.</p><div id="import-status" class="inline-status" role="status"></div></section><section class="panel"><h2>Místní uložení</h2><p>Bez uložení projekt existuje pouze v otevřené stránce. Export je tvoje přenosná záloha.</p><label class="check-line"><input id="persist" type="checkbox" ${persist ? "checked" : ""}><span>Ukládat pracovní projekt v tomto prohlížeči na tomto zařízení.</span></label><p class="note">Na sdíleném počítači uložení nezapínej. Vymazání dat prohlížeče může projekt odstranit. Soukromý režim nemusí data zachovat.</p><div class="form-actions"><button class="button secondary" data-action="reset">Obnovit ukázková data</button><button class="button danger" data-action="clear">Vymazat místní projekt</button></div></section></div><div class="panel"><h2>Aktuální projekt</h2><p>${esc(portfolio.name || "Pracovní projekt")} · Počet parcel: ${portfolio.parcels?.length || 0} · Počet záměrů: ${getProjects().length}</p><p class="note">${portfolio.isDemo ? "Smyšlená demonstrační data — nepředstavují rodinný majetek." : "Vlastní místní projekt. Přesnost a aktuálnost vstupů ověř proti původním dokladům."}</p></div>`;
+    )}</div><div class="results-meta"><p><strong>${rs.length} možností</strong> · ${s.hasData ? "seřazeno podle shody s evidencí" : "podpory i cesty bez dotace"}</p><label><input id="closed" type="checkbox" ${closed ? "checked" : ""}> Zahrnout uzavřené výzvy</label></div><p class="interpretation">Shoda s evidencí vyjadřuje návaznost na známé údaje. Není to pravděpodobnost schválení dotace ani potvrzený nárok.</p><div class="cards">${rs.length ? rs.map(card).join("") : '<div class="empty"><h3>V tomto výběru teď není žádná možnost.</h3><p>Zkuste jinou oblast nebo zahrňte uzavřené výzvy.</p><button class="button" data-focus="all">Všechny oblasti</button></div>'}</div></section><section class="import-banner"><div><p class="eyebrow">MÁTE VLASTNÍ POZEMKY?</p><h2>Dokumenty dovnitř. Souvislosti ven.</h2><p>Načtěte soupis, poznámky nebo sken z katastru. Výběr se přizpůsobí dostupným údajům. Všechno se zpracuje v tomto prohlížeči.</p></div><button class="button" data-action="data">Načíst podklady ↗</button></section></main><footer><strong>Krajinný kompas</strong><p>Pracovní orientace z veřejných zdrojů. Konkrétní podmínky potvrzuje poskytovatel podpory.</p><button class="quiet" data-action="sources">Zdroje a aktuálnost</button></footer>${selected.size ? `<aside class="compare-bar" aria-label="Vybrané možnosti"><span><strong>${selected.size} ze 3</strong> možností k porovnání</span><button class="quiet" data-action="clear">Zrušit výběr</button><button class="button" data-action="compare">Porovnat možnosti →</button></aside>` : ""}<dialog id="modal"><div class="modal-top"><span>Krajinný kompas</span><button class="close" data-action="close" aria-label="Zavřít dialog">×</button></div><div id="modal-content"></div></dialog>`;
+  document.querySelector(".hero").classList.toggle("has-data", s.hasData);
   bind();
-  document.querySelector("#persist").onchange = (e) => {
-    persist = e.target.checked;
-    if (persist) {
-      if (save())
-        toast("Místní uložení zapnuto. Nezapomeň také exportovat zálohu.");
-      else e.target.checked = false;
-    } else {
-      localStorage.removeItem("krajina-opt-in");
-      localStorage.removeItem("krajina-project");
-      toast("Místní uložení vypnuto a uložená kopie odstraněna.");
-    }
-  };
 }
-function collectDraft() {
-  const form = document.querySelector("#project-form");
-  if (!form || !draft) return;
-  draft.parcelIds = new FormData(form).getAll("parcelIds").filter(Boolean);
-  for (const [key, value] of new FormData(form)) {
-    if (key.startsWith("evidence.")) draft.evidence[key.slice(9)] = value;
-    else if (key.startsWith("budget."))
-      draft.budget[key.slice(7)] = Number(value);
-    else if (key === "parcelIds")
-      draft.parcelIds = new FormData(form).getAll("parcelIds").filter(Boolean);
-    else if (key === "areaHa") draft.areaHa = Number(value);
-    else draft[key] = value;
+function dialog(html, wide = false) {
+  const d = document.querySelector("#modal");
+  d.classList.toggle("wide", wide);
+  document.querySelector("#modal-content").innerHTML = html;
+  const title = document.querySelector("#modal-content h2");
+  if (title) {
+    title.id = "modal-title";
+    d.setAttribute("aria-labelledby", title.id);
   }
+  if (!d.open) d.showModal();
+  else d.scrollTop = 0;
+  bindDialog();
+}
+function sourceUrls(r) {
+  return [
+    ...new Set([
+      ...(r.sourceUrls || []),
+      ...(r.opportunity.sourceUrls || []),
+      ...(r.opportunity.sourceIds || [])
+        .map((id) => sources.find((s) => s.id === id)?.url)
+        .filter(Boolean),
+    ]),
+  ];
+}
+function detail(id) {
+  const r = find(id);
+  if (!r) return;
+  const o = r.opportunity;
+  dialog(
+    `<p class="eyebrow">${esc(cats[o.category] || "MOŽNOST PRO KRAJINU")}</p><h2 class="modal-title">${esc(o.title)}</h2><p class="lead">${esc(o.summary)}</p>${fit(r)}<p class="small muted">Shoda s podklady není odhad pravděpodobnosti získání podpory.</p><div class="detail-metrics"><section><h3>Podpora a spoluúčast</h3><strong class="metric-large">${esc(o.costShare?.label)}</strong><p>${esc(o.costShare?.basis)}</p><p>${esc(limits(o))}</p><span class="status">${esc(status(r))}</span>${r.program ? `<p>${esc(r.program.title)}</p>` : ""}</section><section><h3>Kolik práce to znamená</h3><strong class="metric-large">${esc(o.effort?.label)}</strong><p>${esc(o.effort?.reason)}</p></section></div>${
+      r.parcels?.length
+        ? `<section><h3>Návaznost na pozemky</h3><p>${fmt(r.parcels.length)} parcel · ${fmt(r.areaHa)} ha</p><div class="parcel-tags">${r.parcels
+            .slice(0, 15)
+            .map(
+              (p) =>
+                `<span>${esc(p.parcelNumber || p.name || p.id)}${p.cadastralArea ? ` · ${esc(p.cadastralArea)}` : ""}</span>`,
+            )
+            .join(
+              "",
+            )}${r.parcels.length > 15 ? "<span>… další v načteném soupisu</span>" : ""}</div></section>`
+        : ""
+    }<section><h3>Co může přinést</h3>${list(o.benefits)}</section><section class="risk-box"><h3>Na co si dát pozor</h3>${list([...new Set([...(r.risks || []), ...(o.risks || [])])])}</section>${r.missing?.length ? `<section><h3>Co z dokumentů zatím nevíme</h3>${list(r.missing)}<p class="small muted">Není potřeba nic vyplňovat. Tyto body ověřte, až se rozhodnete pokračovat.</p></section>` : ""}<section class="next-step"><p class="eyebrow">PRVNÍ SMYSLUPLNÝ KROK</p><h3>${esc(o.nextStep)}</h3></section><section><h3>Odkud informace pocházejí</h3><ul class="source-list">${sourceUrls(
+      r,
+    )
+      .map(
+        (u, i) =>
+          `<li><a href="${esc(url(u))}" target="_blank" rel="noopener noreferrer">${esc(sources.find((s) => s.url === u)?.title || `Oficiální podklad ${i + 1}`)} ↗</a></li>`,
+      )
+      .join(
+        "",
+      )}</ul><p class="small muted">Ověření katalogu: ${esc(o.checkedAt || "neuvedeno")}. Termíny a pravidla se mohou změnit.</p></section><div class="dialog-actions"><button class="button" data-download-one="${esc(id)}">Stáhnout tuto možnost ↓</button><button class="quiet" data-action="close">Zavřít</button></div>`,
+  );
+}
+function dataDialog() {
+  dialog(
+    `<p class="eyebrow">VOLITELNÉ SOUKROMÉ PODKLADY</p><h2 class="modal-title">Vaše pozemky, bez přepisování.</h2><p class="lead">Vyberte jeden nebo více dokumentů. Údaje přidáme k načteným pozemkům a rovnou seřadíme možnosti. Rozporné záznamy nepřepíšeme.</p><label class="dropzone" id="dropzone"><span class="upload-symbol" aria-hidden="true">↥</span><strong>Vybrat dokumenty</strong><span>nebo je přetáhnout sem</span><small>JSON, Markdown, TXT, PDF, JPG a PNG</small><input id="documents" type="file" multiple accept=".json,.md,.markdown,.txt,.pdf,.jpg,.jpeg,.png"></label><p id="import-progress" role="status" class="progress"></p><div class="privacy"><strong>Zpracování v tomto zařízení</strong><p>Obsah dokumentů se neodesílá na server ani do externího AI. Čtení skenů může trvat déle a může obsahovat chyby. Import nenahrazuje ověření katastru.</p></div>${portfolio ? `<div class="data-summary"><strong>Načtené parcely: ${fmt(portfolio.parcels?.length)}</strong><p>${esc(portfolio.name || "Vaše podklady")}</p><label class="remember"><input id="remember" type="checkbox" ${persist ? "checked" : ""}> Pamatovat údaje v tomto prohlížeči</label><div class="dialog-actions"><button class="quiet" data-action="download-data">Stáhnout vlastní kopii</button><button class="danger" data-action="delete-data">Odstranit moje data</button></div></div>` : '<p class="small muted">Bez uložení do prohlížeče podklady zmizí po zavření nebo obnovení stránky. Výsledky fungují i bez importu.</p>'}`,
+  );
+}
+async function handleFiles(files) {
+  if (busy || !files?.length) return;
+  busy = true;
+  document.querySelector("#modal .close").disabled = true;
+  document
+    .querySelectorAll("#modal .data-summary button, #modal #remember")
+    .forEach((el) => (el.disabled = true));
+  const progress = document.querySelector("#import-progress");
+  const update = (s) => {
+    if (progress)
+      progress.textContent =
+        typeof s === "string" ? s : s?.message || "Zpracovávám dokumenty…";
+  };
+  update("Načítám dokumenty. Okno prosím ponechte otevřené.");
+  document.querySelector("#documents").disabled = true;
+  try {
+    const r = await importDocuments(Array.from(files), {
+      onProgress: update,
+      existingPortfolio: portfolio,
+    });
+    if (!r.portfolio?.parcels?.length)
+      throw Error(
+        "V podkladech se nepodařilo najít parcelní soupis. Zkuste textový přepis nebo JSON.",
+      );
+    portfolio = r.portfolio;
+    warnings = [...new Set([...warnings, ...(r.warnings || [])])];
+    selected.clear();
+    save();
+    document.querySelector("#modal").close();
+    render();
+    document.querySelector("#results").scrollIntoView({ behavior: "smooth" });
+  } catch (e) {
+    update(e.message || "Dokument se nepodařilo přečíst. Zkuste jiný podklad.");
+    const input = document.querySelector("#documents");
+    if (input) input.disabled = false;
+  } finally {
+    busy = false;
+    const close = document.querySelector("#modal .close");
+    if (close) close.disabled = false;
+    document
+      .querySelectorAll("#modal .data-summary button, #modal #remember")
+      .forEach((el) => (el.disabled = false));
+  }
+}
+function comparison() {
+  const rs = [...selected].map(find).filter(Boolean);
+  dialog(
+    `<p class="eyebrow">VEDLE SEBE, V SOUVISLOSTECH</p><h2 class="modal-title">Porovnání možností</h2><p class="muted">Srovnání podmínek, nikoli predikce schválení.</p><div class="comparison">${rs.map((r) => `<article><h3>${esc(r.opportunity.title)}</h3><div><span>Shoda s evidencí</span><strong>${esc(r.fit.label)}</strong><p>${esc(r.fit.reason)}</p></div><div><span>Podpora a spoluúčast</span><strong>${esc(r.opportunity.costShare?.label)}</strong><p>${esc(r.opportunity.costShare?.basis)}</p></div><div><span>Náročnost</span><strong>${esc(r.opportunity.effort?.label)}</strong><p>${esc(r.opportunity.effort?.reason)}</p></div><div><span>Dostupnost</span><strong>${esc(status(r))}</strong></div><div><span>Hlavní rizika</span>${list((r.risks?.length ? r.risks : r.opportunity.risks || []).slice(0, 3))}</div><button class="text-button" data-detail="${esc(r.opportunity.id)}">Úplný detail ↗</button></article>`).join("")}</div>`,
+    true,
+  );
+}
+function report(rs = results()) {
+  return `# Krajinný kompas – možnosti pro krajinu\n\nVytvořeno: ${new Date().toLocaleDateString("cs-CZ")}\n\n${portfolio ? `Načtený soupis: ${portfolio.parcels.length} parcel.` : "Obecný přehled bez soukromých podkladů."} Shoda s evidencí není pravděpodobnost schválení ani potvrzení nároku.\n\n${rs
+    .map((r) => {
+      const o = r.opportunity;
+      return `## ${o.title}\n\n${o.summary}\n\n- Shoda: ${r.fit.label}. ${r.fit.reason}\n- Stav: ${status(r)}\n- Spoluúčast: ${o.costShare?.label || "Ověřit"}\n- Základ: ${o.costShare?.basis || ""}\n- Omezení: ${limits(o)}\n- Náročnost: ${o.effort?.label || ""}. ${o.effort?.reason || ""}\n\n### Rizika\n${[...new Set([...(r.risks || []), ...(o.risks || [])])].map((x) => `- ${x}`).join("\n")}\n\n### Co zatím nevíme\n${(r.missing || []).map((x) => `- ${x}`).join("\n")}\n\n### Další krok\n${o.nextStep}\n\n### Zdroje\n${sourceUrls(
+        r,
+      )
+        .map((u) => `- ${u}`)
+        .join("\n")}\n\nOvěření: ${o.checkedAt || "neuvedeno"}.\n`;
+    })
+    .join(
+      "\n",
+    )}${warnings.length ? `\n## Nejistoty importu\n${warnings.map((w) => `- ${w}`).join("\n")}` : ""}`;
+}
+function download(name, body, type = "text/markdown;charset=utf-8") {
+  const u = URL.createObjectURL(new Blob([body], { type }));
+  const a = document.createElement("a");
+  a.href = u;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(u), 1000);
+}
+function action(a) {
+  if (a === "close") {
+    document.querySelector("#modal").close();
+    return;
+  }
+  if (a === "data") dataDialog();
+  if (a === "clear") {
+    selected.clear();
+    render();
+  }
+  if (a === "compare") comparison();
+  if (a === "report") download("krajina-moznosti.md", report());
+  if (a === "download-data")
+    download(
+      "moje-pozemky.json",
+      JSON.stringify(portfolio, null, 2),
+      "application/json",
+    );
+  if (a === "delete-data") {
+    portfolio = null;
+    persist = false;
+    warnings = [];
+    selected.clear();
+    for (const k of [
+      key,
+      "krajina-results-consent",
+      "krajina-project",
+      "krajina-opt-in",
+    ])
+      localStorage.removeItem(k);
+    document.querySelector("#modal").close();
+    render();
+  }
+  if (a === "about")
+    dialog(
+      `<p class="eyebrow">CO VÝSLEDKY ZNAMENAJÍ</p><h2 class="modal-title">Dobré rozhodnutí začíná souvislostmi.</h2><p class="lead">Nabídky fungují i bez podkladů. Po importu je řadíme podle typu a výměry doložených pozemků.</p><h3>Shoda, nikoli procenta úspěchu</h3><p>Samotný katastr neříká, kdo pozemek obhospodařuje, co na něm roste nebo zda je splněna podmínka výzvy. Bez dat o žádostech a jejich výsledcích by procento šance bylo smyšlené.</p><h3>Spoluúčast v kontextu</h3><p>Maximální podíl podpory se obvykle vztahuje k uznatelným nákladům. Neuznatelné výdaje, překročení limitu, předfinancování a následná péče mohou zůstat na žadateli.</p><h3>Nic nemusíte vyplňovat</h3><p>Chybějící údaje jsou body k ověření. Až u zajímavé možnosti dává smysl kontaktovat poskytovatele nebo odborníka.</p>`,
+    );
+  if (a === "sources")
+    dialog(
+      `<p class="eyebrow">DOHLEDATELNÉ PODKLADY</p><h2 class="modal-title">Zdroje a aktuálnost</h2><p>Podrobné odkazy jsou také u každé možnosti. Katalog nenahrazuje aktuální znění výzvy ani odborné posouzení místa.</p><ul class="source-list">${sources.map((s) => `<li><a href="${esc(url(s.url))}" target="_blank" rel="noopener noreferrer">${esc(s.title)} ↗</a><p class="small muted">${esc(s.organization || "")}${s.checkedAt ? ` · ${esc(s.checkedAt)}` : ""}</p></li>`).join("")}</ul>`,
+    );
 }
 function bind() {
-  document
-    .querySelectorAll("[data-nav]")
-    .forEach((b) => (b.onclick = () => goto(b.dataset.nav)));
-  document.querySelectorAll("[data-edit]").forEach(
-    (b) =>
-      (b.onclick = () => {
-        draft = copy(getProjects().find((p) => p.id === b.dataset.edit));
-        draftBaseline = JSON.stringify(draft);
-        view = "projects";
-        render();
-        collectDraft();
-        draftBaseline = JSON.stringify(draft);
-        window.scrollTo({ top: 0 });
-      }),
-  );
-  document.querySelectorAll("[data-filter]").forEach(
-    (b) =>
-      (b.onclick = () => {
-        filter = b.dataset.filter;
-        render();
-      }),
-  );
-  document
-    .querySelectorAll("[data-parcel]")
-    .forEach((b) => (b.onclick = () => selectParcel(b.dataset.parcel)));
-  document
+  app
     .querySelectorAll("[data-action]")
     .forEach((b) => (b.onclick = () => action(b.dataset.action)));
-  const form = document.querySelector("#project-form");
-  if (form) {
-    form.onsubmit = (e) => {
+  app.querySelectorAll("[data-focus]").forEach(
+    (b) =>
+      (b.onclick = () => {
+        focus = b.dataset.focus;
+        render();
+      }),
+  );
+  app
+    .querySelectorAll("[data-detail]")
+    .forEach((b) => (b.onclick = () => detail(b.dataset.detail)));
+  app.querySelectorAll("[data-compare]").forEach(
+    (b) =>
+      (b.onchange = () => {
+        b.checked
+          ? selected.add(b.dataset.compare)
+          : selected.delete(b.dataset.compare);
+        const y = window.scrollY;
+        render();
+        window.scrollTo(0, y);
+      }),
+  );
+  document.querySelector("#closed").onchange = (e) => {
+    closed = e.target.checked;
+    render();
+  };
+  document.querySelector("#modal").addEventListener("click", (e) => {
+    if (!busy && e.target === e.currentTarget) e.currentTarget.close();
+  });
+  document.querySelector("#modal").addEventListener("cancel", (e) => {
+    if (busy) e.preventDefault();
+  });
+}
+function bindDialog() {
+  const d = document.querySelector("#modal");
+  d.querySelectorAll("[data-action]").forEach(
+    (b) => (b.onclick = () => action(b.dataset.action)),
+  );
+  d.querySelectorAll("[data-detail]").forEach(
+    (b) => (b.onclick = () => detail(b.dataset.detail)),
+  );
+  d.querySelectorAll("[data-download-one]").forEach(
+    (b) =>
+      (b.onclick = () =>
+        download("krajina-moznost.md", report([find(b.dataset.downloadOne)]))),
+  );
+  const input = d.querySelector("#documents");
+  if (input) {
+    input.onchange = () => handleFiles(input.files);
+    const zone = d.querySelector("#dropzone");
+    zone.ondragover = (e) => {
       e.preventDefault();
-      collectDraft();
-      if (!draft.name.trim()) {
-        toast("Doplň název záměru.");
-        return;
-      }
-      const budgetCheck = calculateBudget(draft.budget);
-      if (budgetCheck.errors.length) {
-        toast(budgetCheck.errors.join(" "));
-        return;
-      }
-      const list = [...getProjects()];
-      const at = list.findIndex((p) => p.id === draft.id);
-      if (at < 0) list.push(copy(draft));
-      else list[at] = copy(draft);
-      const candidate = { ...portfolio, projects: list };
-      const validation = validateImport(candidate);
-      if (!validation.valid) {
-        toast(validation.errors.join(" "));
-        return;
-      }
-      portfolio.projects = list;
-      const stored = save();
-      toast(
-        stored
-          ? "Záměr uložen do pracovního projektu."
-          : "Záměr je jen v paměti. Místní uložení selhalo; exportuj zálohu JSON.",
-      );
-      draft = null;
-      render();
+      zone.classList.add("dragover");
     };
-    form.addEventListener("change", (event) => {
-      collectDraft();
-      if (
-        !event.target.name.startsWith("evidence.") &&
-        event.target.name !== "measureId"
-      )
-        return;
-      const active = document.activeElement?.name;
-      render();
-      if (active)
-        document.querySelector(`[name="${CSS.escape(active)}"]`)?.focus();
-    });
+    zone.ondragleave = () => zone.classList.remove("dragover");
+    zone.ondrop = (e) => {
+      e.preventDefault();
+      zone.classList.remove("dragover");
+      handleFiles(e.dataTransfer.files);
+    };
   }
-  document.querySelector("#file-import").onchange = importFile;
-}
-function action(id) {
-  if (id === "recalculate") {
-    collectDraft();
-    render();
-  } else if (id === "tiles") {
-    if (
-      !tilesEnabled &&
-      !confirm(
-        "Načíst podklad OpenStreetMap? Poskytovatel obdrží tvou IP adresu a zobrazovanou oblast mapy. Názvy parcel ani poznámky se neodesílají.",
-      )
-    )
-      return;
-    tilesEnabled = !tilesEnabled;
-    render();
-  } else if (id === "new") {
-    draft = newProject();
-    draftBaseline = JSON.stringify(draft);
-    view = "projects";
-    render();
-    collectDraft();
-    draftBaseline = JSON.stringify(draft);
-    window.scrollTo({ top: 0 });
-  } else if (id === "back") {
-    if (!mayLeaveDraft()) return;
-    draft = null;
-    render();
-  } else if (id === "data") {
-    if (!mayLeaveDraft()) return;
-    draft = null;
-    dataView();
-  } else if (id === "import") document.querySelector("#file-import").click();
-  else if (id === "export")
-    download(
-      "krajinný-kompas-projekt.json",
-      JSON.stringify(portfolio, null, 2),
-    );
-  else if (id === "report") {
-    collectDraft();
-    download(
-      "podklad-záměru.md",
-      createReport(draft, evaluation(draft)),
-      "text/markdown;charset=utf-8",
-    );
-  } else if (id === "project-json") {
-    collectDraft();
-    download(
-      "záměr.json",
-      JSON.stringify(
-        { project: draft, evaluation: evaluation(draft) },
-        null,
-        2,
-      ),
-    );
-  } else if (id === "delete-project") {
-    if (confirm("Smazat tento záměr z pracovního projektu?")) {
-      portfolio.projects = getProjects().filter((p) => p.id !== draft.id);
-      draft = null;
-      save();
-      render();
-      toast("Záměr odstraněn.");
-    }
-  } else if (id === "reset") {
-    if (
-      confirm(
-        "Nahradit aktuální projekt ukázkovými daty? Neexportované změny se ztratí.",
-      )
-    ) {
-      tilesEnabled = false;
-      portfolio = copy(starterPortfolio);
-      save();
-      goto("overview");
-    }
-  } else if (id === "clear") {
-    if (
-      confirm(
-        "Odstranit uložený projekt z tohoto prohlížeče a vyprázdnit pracovní prostor?",
-      )
-    ) {
-      tilesEnabled = false;
-      persist = false;
-      localStorage.removeItem("krajina-opt-in");
-      localStorage.removeItem("krajina-project");
-      portfolio = {
-        schemaVersion: 1,
-        name: "Prázdný pracovní projekt",
-        isDemo: false,
-        parcels: [],
-        projects: [],
-        observations: [],
-      };
-      dataView();
-      toast("Místní projekt odstraněn.");
-    }
-  }
-}
-async function importFile(event) {
-  const file = event.target.files?.[0];
-  if (!file) return;
-  let status = document.querySelector("#import-status");
-  try {
-    if (file.size > 10 * 1024 * 1024)
-      throw new Error("Soubor je příliš velký. Limit je 10 MB.");
-    const raw = JSON.parse(await file.text());
-    const result = validateImport(raw);
-    if (!result.valid)
-      throw new Error(
-        (result.errors || ["Neplatná struktura projektu."]).join(" "),
-      );
-    const next = normalizePortfolio(raw);
-    if (
-      !confirm(
-        `Načíst projekt s ${next.parcels?.length || 0} parcelami? Aktuální pracovní projekt bude nahrazen.`,
-      )
-    )
-      return;
-    portfolio = next;
-    const stored = save();
-    dataView();
-    status = document.querySelector("#import-status");
-    status.textContent = `Načteno ${next.parcels?.length || 0} parcel. ${(result.warnings || []).join(" ")}`;
-    toast(
-      stored
-        ? "Projekt načten místně v prohlížeči."
-        : "Projekt je jen v paměti. Místní uložení selhalo; exportuj JSON.",
-    );
-  } catch (error) {
-    if (status) status.textContent = `Import se nepodařil: ${error.message}`;
-    toast(`Import se nepodařil: ${error.message}`);
-  }
-  event.target.value = "";
+  const remember = d.querySelector("#remember");
+  if (remember)
+    remember.onchange = (e) => {
+      persist = e.target.checked;
+      if (persist) save();
+      else {
+        localStorage.removeItem(key);
+        localStorage.removeItem("krajina-results-consent");
+      }
+    };
 }
 render();
-
-window.addEventListener("beforeunload", (event) => {
-  if (draft) {
-    collectDraft();
-    if (JSON.stringify(draft) !== draftBaseline) {
-      event.preventDefault();
-      event.returnValue = "";
-    }
-  }
-});

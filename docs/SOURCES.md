@@ -4,11 +4,11 @@ Stav rešerše: **20. 10. 2026**. Katalog je kurátorovaný rozhodovací podklad
 
 ## Zásady
 
-- Nejprve záměr, potřebné podklady a dopady; potom vhodné financování.
+- Možnosti zobrazit ihned; podmínky, podklady a dopady vysvětlit bez povinného vyplňování.
 - Tůň, mokřad, rybník a zásah do toku mají odlišný účel i možné právní režimy. Pojmenování samo neurčuje potřebná povolení.
 - Rybník nezaručuje odstranění sucha v lese. Rozhoduje povodí, bilance, geologie, způsob správy a související opatření.
 - Veřejné nálezové mapy nejsou úplný terénní průzkum. Absence nálezu nevylučuje chráněný druh.
-- Mapový překryv zde není vypočten ani ověřen. Ukázková mapa nemá žádnou důkazní hodnotu.
+- Mapový překryv zde není vypočten ani ověřen; z druhu pozemku nelze odvodit hydrologii nebo biologický stav.
 - Náklady, procenta podpory a způsobilost se automaticky nevymýšlejí. Finanční scénář musí vycházet z doložených částek a podmínek.
 - Kontrolní otázky, doporučené kroky a struktura výstupů jsou autorskou syntézou pro přípravu jednání. Nejsou citací právní povinnosti pro všechny případy.
 
@@ -23,7 +23,7 @@ Stav rešerše: **20. 10. 2026**. Katalog je kurátorovaný rozhodovací podklad
 | [MZe – § 55a vodního zákona](https://mze.gov.cz/public/portal/mze/legislativa/vap51514-44574) | Povolování záměrů vodních děl a související podmínky. |
 | [AOPK – památné stromy](https://aopk.gov.cz/cs/chci-vyhlasit-nebo-osetrit-pamatny-strom) | Vyhlášení ochrany a souhlas s ošetřením; odpovědnost vlastníka. |
 | [AOPK – nálezová data druhů](https://data.nature.cz/ds/19) | Veřejný přístup neobsahuje citlivé druhy; další přístup má smluvní a odborné podmínky. |
-| [AOPK – 17. výzva](https://dotace.aopk.gov.cz/-/aopk-opzp-zmv-17-vyzva) | Oznámené znovuotevření 20. 10.–3. 11. 2026. Karta současně uváděla „připravuje se“, proto status aplikace „ověřit“. |
+| [AOPK – 17. výzva](https://dotace.aopk.gov.cz/-/aopk-opzp-zmv-17-vyzva) | Příjem znovuotevřen 20. 10.–3. 11. 2026; při opakované kontrole 20. 10. již karta uvádí „probíhá“. Registrace JDP a doručení mají různé lhůty podle textu výzvy. |
 | [AOPK – 18. výzva](https://dotace.aopk.gov.cz/-/aopk-opzp-zmv-18-vyzva) | Oznámené okno 21. 10.–4. 11. 2026. Péče o přírodní stanoviště a druhy. |
 | [AOPK – PPK B](https://dotace.aopk.gov.cz/ppk-b) | Druhá výzva 2026 skončila 18. 6. 2026; nezobrazovat jako otevřenou. |
 | [MZe – příspěvky do lesů od března 2026](https://mze.gov.cz/public/portal/mze/lesy/dotace-v-lesnim-hospodarstvi-a-myslivosti/financni-prispevky-na-hospodareni-v/prispevky-na-hospodareni-v-lesich-podminky-platne-od-1-3-2026) | Režim podle data provedení a typu práce. Krajský úřad, ohlášení, žádost; jednotné roční okno nezadáno. |
