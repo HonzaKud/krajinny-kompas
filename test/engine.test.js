@@ -175,4 +175,6 @@ test("native roundtrip keeps specialist evidence and report is useful", () => {
   assert.equal(p.projects[0].evidence.treeStatus, "yes");
   const ev = evaluateProject(p.projects[0], { measures, programs, sources });
   assert.match(createReport(p.projects[0], ev), /NEOVĚŘENO/);
+  assert.match(createReport(p.projects[0], ev), /Koho zapojit/);
+  assert.match(createReport(p.projects[0], ev), /aopk.gov.cz/);
 });

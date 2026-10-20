@@ -264,6 +264,10 @@ export function calculateBudget(budget = {}) {
   const rate = num("grantRate");
   if (rate > 100) errors.push("Míra podpory musí být mezi 0 a 100 %.");
   const grant = (eligibleCosts * Math.min(rate, 100)) / 100;
+  if (total === 0)
+    warnings.push(
+      "Rozpočet zatím není vyčíslen. Nulové vstupy neznamenají bezplatnou realizaci.",
+    );
   const annualMaintenance = num(
     budget.annualMaintenance != null ? "annualMaintenance" : "maintenance",
   );
@@ -375,6 +379,7 @@ export function evaluateProject(
     blockers,
     nextSteps,
     funding,
+    sources: sources.filter((s) => list(measure?.sourceIds).includes(s.id)),
     summary: !measure
       ? "Vyber opatření."
       : blockers.length
@@ -400,11 +405,24 @@ export function createReport(project, evaluation) {
       maximumFractionDigits: 0,
     }).format(v);
   const safe = (v) => clean(v, 4000).replace(/[\r\n]+/g, " ");
+  const section = (title, items) =>
+    items?.length ? [`\n## ${title}`, ...items.map((x) => `- ${safe(x)}`)] : [];
+  const statusLabel = {
+    open: "otevřená – ověřit podmínky",
+    upcoming: "oznámený budoucí termín",
+    closed: "ukončená",
+    verify: "aktuální příjem ověřit",
+  };
   return [
     `# ${safe(project.name || "Pracovní záměr")}`,
     `Vytvořeno: ${new Date().toISOString().slice(0, 10)}`,
     `Opatření: ${safe(evaluation.measure?.title || project.measureId)}`,
     `Parcely (ID): ${list(project.parcelIds).map(safe).join(", ") || "nepřiřazeno"}`,
+    ...list(evaluation.parcels).map(
+      (p) =>
+        `- ${safe(p.cadastralArea)} ${safe(p.parcelNumber)} — ${safe(p.landType)}, ${p.areaM2} m²`,
+    ),
+    `Řešená plocha: ${project.areaHa > 0 ? `${project.areaHa} ha` : "k upřesnění"}`,
     `\n${evaluation.summary}`,
     `\n## Cíl a poznatky`,
     clean(project.notes, 20000),
@@ -415,6 +433,10 @@ export function createReport(project, evaluation) {
     ),
     `\n## Další kroky`,
     ...evaluation.nextSteps.map((x) => `- ${safe(x)}`),
+    ...section("Doporučený postup přípravy", evaluation.measure?.steps),
+    ...section("Koho zapojit", evaluation.measure?.experts),
+    ...section("Požadované výstupy", evaluation.measure?.outputs),
+    ...section("Rizika k posouzení", evaluation.measure?.risks),
     `\n## Rozpočtový scénář`,
     `- Realizace a příprava: ${money(b.total)}`,
     `- Model podpory: ${money(b.grant)} (nepotvrzeno)`,
@@ -423,12 +445,18 @@ export function createReport(project, evaluation) {
     `- Péče za ${b.years} let: ${money(b.maintenanceTotal)}`,
     `- Výdaje po modelové podpoře včetně péče: ${money(b.netCost)}`,
     ...b.errors.map((x) => `- CHYBA ROZPOČTU: ${x}`),
+    ...b.warnings.map((x) => `- ${x}`),
     `\n## Podpory k prověření`,
     ...evaluation.funding.flatMap((f) => [
-      `- ${safe(f.program.title)} — ${f.windowStatus}; ověřeno ${f.checkedAt || "neznámé datum"}`,
+      `- ${safe(f.program.title)} — ${statusLabel[f.windowStatus] || "ověřit"}; ověřeno ${f.checkedAt || "neznámé datum"}`,
       `  ${f.program.url || ""}`,
       ...f.reasons.map((r) => `  - ${safe(r)}`),
     ]),
+    "\n## Odborné zdroje",
+    ...list(evaluation.sources).map(
+      (s) =>
+        `- ${safe(s.title)} (${safe(s.organization)}), kontrola ${safe(s.checkedAt)}: ${s.url}`,
+    ),
     `\nPracovní podklad pro konzultaci. Nejde o potvrzení práv, povolení ani přiznání podpory.`,
   ].join("\n");
 }
