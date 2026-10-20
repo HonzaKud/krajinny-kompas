@@ -9,12 +9,14 @@ const fold = (v) =>
 const array = (v) => (Array.isArray(v) ? v : []);
 export function landType(value) {
   const s = fold(value);
+  if (/zastaven|stavba|built/.test(s)) return "built";
   if (/les|forest/.test(s)) return "forest";
   if (/travni|louka|louky|meadow|pastvin/.test(s)) return "meadow";
   if (/orna|arable|pole/.test(s)) return "arable";
   if (/vodni|water|rybnik|potok/.test(s)) return "water";
   if (/zahrad|garden|sad/.test(s)) return "garden";
-  return "other";
+  if (/ostatni|other/.test(s)) return "other";
+  return "unknown";
 }
 export function portfolioSummary(p) {
   const parcels = array(p?.parcels);

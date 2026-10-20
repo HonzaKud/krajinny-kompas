@@ -19,6 +19,24 @@ const p = {
   ],
   projects: [],
 };
+test("buildings and unknown land types are not treated as other open land", () => {
+  assert.equal(landType("zastavěná plocha a nádvoří"), "built");
+  assert.equal(landType(""), "unknown");
+  assert.equal(landType("ostatní plocha"), "other");
+  const r = recommend({
+    ...p,
+    parcels: [
+      ...p.parcels,
+      { id: "building", landType: "zastavěná plocha a nádvoří", areaM2: 1000 },
+      { id: "unclear", landType: "neznámý druh", areaM2: 1000 },
+    ],
+  });
+  assert.ok(
+    r.every((x) =>
+      x.parcels.every((p) => !["building", "unclear"].includes(p.id)),
+    ),
+  );
+});
 test("first opening offers real opportunities without input or demo parcels", () => {
   const r = recommend();
   assert.ok(r.length >= 6);
